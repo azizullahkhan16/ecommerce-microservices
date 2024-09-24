@@ -1,5 +1,6 @@
 package com.aktic.order_service.service;
 
+import com.aktic.order_service.dto.InventoryResponse;
 import com.aktic.order_service.dto.OrderLineItemsDto;
 import com.aktic.order_service.dto.OrderRequest;
 import com.aktic.order_service.dto.OrderResponse;
@@ -13,7 +14,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final WebClient webClient;
 
     public ResponseEntity<OrderResponse> placeOrder(OrderRequest orderRequest) {
         Order order = new Order();
@@ -33,10 +37,25 @@ public class OrderService {
 
         order.setOrderLineItemsList(orderLineItemsList);
 
-        Order savedOrder = orderRepository.save(order);
+        List<String> skuCodes = orderLineItemsList.stream().map(OrderLineItems::getSkuCode).toList();
 
-        log.info("Order {} created", savedOrder.getId());
-        return new ResponseEntity<>(mapToOrderResponse(savedOrder), HttpStatus.CREATED);
+        // Calling inventory service to provide availability of the order line items
+        InventoryResponse[] inventoryResponses = webClient.get()
+                .uri("http://localhost:8082/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCodes", skuCodes).build())
+                .retrieve()
+                .bodyToMono(InventoryResponse[].class)
+                .block();
+
+        boolean allProductsInStock = Arrays.stream(inventoryResponses).allMatch(InventoryResponse::getIsInStock);
+
+        if(allProductsInStock) {
+            Order savedOrder = orderRepository.save(order);
+
+            log.info("Order {} created", savedOrder.getId());
+            return new ResponseEntity<>(mapToOrderResponse(savedOrder), HttpStatus.CREATED);
+        } else {
+            throw new IllegalArgumentException("Product is not in stock");
+        }
     }
 
     private OrderResponse mapToOrderResponse(Order order) {
