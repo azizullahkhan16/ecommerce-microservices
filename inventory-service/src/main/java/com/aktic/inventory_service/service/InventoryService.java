@@ -21,7 +21,6 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public ResponseEntity<List<InventoryResponse>> isInStock(List<String> skuCodes) {
-        List<Inventory> inventories = inventoryRepository.findBySkuCodeIn(skuCodes);
         return new ResponseEntity<>(inventoryRepository.findBySkuCodeIn(skuCodes)
                 .stream().map(inventory ->
                         InventoryResponse.builder()
